@@ -1,11 +1,11 @@
 package domain
 
 import (
-	"time"
 	"github.com/google/uuid"
+	"time"
 )
 
-type TaskStatus string 
+type TaskStatus string
 
 const (
 	TaskPending   TaskStatus = "PENDING"
@@ -15,8 +15,8 @@ const (
 )
 
 type Task struct {
-	ID uuid.UUID
-	Goal string 
-	Status TaskStatus
-	CreatedAt time.Time 
+	ID        uuid.UUID
+	Goal      string
+	Status    TaskStatus
+	CreatedAt time.Time
 }
