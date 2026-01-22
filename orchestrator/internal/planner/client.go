@@ -6,28 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
-
-	"github.com/envoyproxy/protoc-gen-validate/validate"
 )
 
-type PlanRequest struct {
-	Goal string `json:"goal"`
-}
-
-type PlanResponse struct {
-	Steps []PlannedStep `json:"steps"`
-}
-
-type PlannedStep struct {
-	ID        string   `json:"id"`
-	Agent     string   `json:"agent"`
-	Input     any      `json:"input"`
-	DependsOn []string `json:"depends_on"`
-}
-
 type Client interface {
-	CreatePlan(ctx context.Context, goal string) (*PlanResponse, error)
+	Plan(ctx context.Context, req PlanRequest) (PlanResponse, error) 
 }
 
 type HTTPClient struct {
@@ -35,89 +17,49 @@ type HTTPClient struct {
 	client  *http.Client
 }
 
-func NewHTTPClient(baseURL string) *HTTPClient {
+func NewClient(baseURL string) *HTTPClient {
 	return &HTTPClient{
 		baseURL: baseURL,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		client:  &http.Client{},
 	}
 }
 
-func (c *HTTPClient) CreatePlan(ctx context.Context, goal string) (*PlanResponse, error) {
-	reqBody, err := json.Marshal(PlanRequest{
-		Goal: goal,
-	})
+func (c *HTTPClient) Plan(
+	ctx context.Context,
+	req PlanRequest,
+) (PlanResponse, error) {
+
+	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return PlanResponse{}, err
 	}
 
-	req, err := http.NewRequestWithContext(
+	httpReq, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		c.baseURL+"/plan",
-		bytes.NewBuffer(reqBody),
+		bytes.NewReader(body),
 	)
 	if err != nil {
-		return nil, err
+		return PlanResponse{}, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.client.Do(req)
+	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return PlanResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("200")
+		return PlanResponse{}, errors.New("planner returned non-200")
 	}
 
-	var plan PlanResponse
-	if err := json.NewDecoder(resp.Body).Decode(&plan); err != nil {
-		return nil, err
+	var out PlanResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return PlanResponse{}, err
 	}
 
-	if err := validatePlan(plan); err != nil {
-		return nil, err
-	}
-
-	return &plan, nil
-}
-
-func validatePlan(plan PlanResponse) error {
-	if len(plan.Steps) == 0 {
-		return errors.New("empty plan")
-	}
-
-	ids := make(map[string]struct{})
-
-	for _, step := range plan.Steps {
-		if step.ID == "" {
-			return errors.New("no step-id")
-		}
-
-		if _, exists := ids[step.ID]; exists {
-			return errors.New("duplicate ids: " + step.ID)
-		}
-
-		ids[step.ID] = struct{}{}
-
-		for _, dep := range step.DependsOn {
-			if dep == step.ID {
-				return errors.New("step depends on itself")
-			}
-		}
-	}
-
-	for _, step := range plan.Steps {
-		for _, dep := range step.DependsOn {
-			if _, ok := ids[dep]; !ok {
-				return errors.New("unknow deps: " + dep)
-			}
-		}
-	}
-
-	return nil
+	return out, nil
 }
